@@ -1,0 +1,23 @@
+# Game binaries + personal save files — do not redistribute
+artifacts/
+
+# Decompiled game bytecode — derivative of copyrighted code, kept local only
+decompiled/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Save-file backups produced by the editor
+*.bak
+*.fam.bak
+*.rsv.bak
+
+# OS / editor noise
+.DS_Store
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>7GS save viewer</title>
+<style>
+  :root {
+    --bg: #15171a;
+    --bg-elev: #1c1f24;
+    --bg-hover: #242830;
+    --fg: #d8dde6;
+    --fg-dim: #888f9a;
+    --fg-faint: #5a606b;
+    --accent: #7dc4e4;
+    --hit: #f9e2af;
+    --warn: #f38ba8;
+    --ok: #a6e3a1;
+    --int: #89b4fa;
+    --str: #a6e3a1;
+    --bool: #cba6f7;
+    --float: #74c7ec;
+    --null: #6c7086;
+    --container: #f9e2af;
+    --obj: #fab387;
+    --border: #2a2e36;
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); }
+  body { font: 13px/1.5 var(--mono); }
+
+  header {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; gap: 10px; align-items: center;
+    padding: 10px 16px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+  }
+  header .title { font-weight: 600; color: var(--accent); }
+  header .source { color: var(--fg-dim); flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .spacer { flex: 1; }
+  header input[type=search] {
+    background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 4px; padding: 6px 10px; min-width: 220px; font: inherit;
+  }
+  header input[type=search]:focus { outline: none; border-color: var(--accent); }
+  header button {
+    background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 4px; padding: 6px 10px; cursor: pointer; font: inherit;
+  }
+  header button:hover:not(:disabled) { background: var(--bg-hover); }
+  header button:disabled { opacity: 0.4; cursor: default; }
+  header button.primary { border-color: var(--accent); color: var(--accent); }
+  header button.danger { border-color: var(--warn); color: var(--warn); }
+  header .dirty {
+    color: var(--warn);
+    border: 1px solid var(--warn);
+    padding: 2px 8px; border-radius: 3px; font-size: 11px;
+    visibility: hidden;
+  }
+  header .dirty.show { visibility: visible; }
+
+  main { padding: 8px 0 60px; }
+  .row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 1px 16px 1px 0;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    min-height: 22px;
+  }
+  .row:hover { background: var(--bg-hover); }
+  .row.editable {
+    border-left: 2px solid transparent;
+  }
+  .row.editable:hover { border-left-color: var(--accent); }
+  .row .indent { display: inline-block; flex: 0 0 auto; }
+  .row .toggle {
+    display: inline-block; width: 14px; flex: 0 0 14px;
+    color: var(--fg-faint); text-align: center;
+  }
+  .row .toggle.leaf { color: transparent; }
+  .row .key { color: var(--fg); }
+  .row .key.record { color: var(--accent); font-weight: 600; }
+  .row .badge {
+    color: var(--fg-faint); font-size: 11px;
+    padding: 0 6px; border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+  .row .badge.int { color: var(--int); }
+  .row .badge.float { color: var(--float); }
+  .row .badge.str { color: var(--str); }
+  .row .badge.bool { color: var(--bool); }
+  .row .badge.null { color: var(--null); }
+  .row .badge.list, .row .badge.tuple, .row .badge.set,
+  .row .badge.dict, .row .badge.dict_kv { color: var(--container); }
+  .row .badge.obj { color: var(--obj); }
+  .row .count { color: var(--fg-faint); font-size: 11px; }
+  .row .value { color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; }
+  .row .value.int, .row .value.float { color: var(--int); }
+  .row .value.str { color: var(--str); }
+  .row .value.bool { color: var(--bool); }
+  .row .value.null { color: var(--null); font-style: italic; }
+  .row.hit > .key { background: var(--hit); color: #15171a; padding: 0 2px; border-radius: 2px; }
+
+  /* Editable affordances */
+  .row .action {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 18px; height: 18px; padding: 0 5px;
+    border: 1px solid var(--border); border-radius: 3px;
+    font-size: 11px; color: var(--fg-dim);
+    background: transparent;
+    cursor: pointer;
+  }
+  .row .action:hover { background: var(--bg-elev); color: var(--fg); border-color: var(--accent); }
+  .row .action.danger:hover { color: var(--warn); border-color: var(--warn); }
+  .row .editable-value {
+    color: var(--int);
+    padding: 0 4px; border-radius: 3px; border: 1px solid transparent;
+    cursor: text;
+  }
+  .row .editable-value:hover { border-color: var(--accent); }
+  .row .editable-value.bool { color: var(--bool); }
+  .row input.inline-edit {
+    background: var(--bg); color: var(--fg); border: 1px solid var(--accent);
+    border-radius: 3px; padding: 0 4px; font: inherit; width: 80px;
+  }
+  .row input.inline-edit:focus { outline: none; }
+
+  .children { display: block; }
+  .children.collapsed { display: none; }
+  .hidden { display: none !important; }
+
+  #toast {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    background: var(--bg-elev); color: var(--fg);
+    padding: 8px 14px; border-radius: 4px;
+    border: 1px solid var(--border);
+    opacity: 0; transition: opacity 150ms;
+    pointer-events: none;
+    max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #toast.show { opacity: 1; }
+  #toast.error { border-color: var(--warn); color: var(--warn); }
+  #toast.ok { border-color: var(--ok); color: var(--ok); }
+
+  #status {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    padding: 4px 16px; font-size: 11px;
+    background: var(--bg-elev); color: var(--fg-faint);
+    border-top: 1px solid var(--border);
+    display: flex; gap: 12px; align-items: center;
+  }
+  #status .kbd {
+    border: 1px solid var(--border); padding: 0 4px; border-radius: 2px; color: var(--fg-dim);
+  }
+  #status .spacer { flex: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="title">7GS</span>
+  <span class="source" id="source">loading…</span>
+  <span class="dirty" id="dirty">unsaved</span>
+  <span class="spacer"></span>
+  <input id="search" type="search" placeholder="filter" autocomplete="off">
+  <button id="expand-all" title="Expand all">▼ all</button>
+  <button id="collapse-all" title="Collapse all">▶ all</button>
+  <button id="discard" class="danger" title="Reload from disk (drops unsaved edits)" disabled>discard</button>
+  <button id="commit" class="primary" title="Write to disk with .bak backup" disabled>save</button>
+</header>
+
+<main id="tree"></main>
+
+<div id="toast"></div>
+<div id="status">
+  <span><span class="kbd">click</span> copy path</span>
+  <span><span class="kbd">click value</span> edit</span>
+  <span><span class="kbd">/</span> filter · <span class="kbd">esc</span> clear</span>
+  <span class="spacer"></span>
+  <span id="status-extra"></span>
+</div>
+
+<script>
+(() => {
+  const INDENT_PX = 16;
+  const VALUE_PREVIEW = 80;
+
+  // ---- path patterns that gate edit affordances ------------------------
+  // Skill value rows live at family.theFamily.{head|mate}.skills.N.1
+  // and familyPC.{head|mate}.0.skills.N.1 (mirrored, edits sync both).
+  const RE_SKILL_VAL = /^(?:family\.theFamily|familyPC)\.(head|mate)(?:\.0)?\.skills\.(\d+)\.1$/;
+  // The skill row itself (the tuple) — used so we can pull the symbol.
+  const RE_SKILL_ROW = /^(?:family\.theFamily|familyPC)\.(head|mate)(?:\.0)?\.skills\.\d+$/;
+  const RE_LOVES = /^(?:family\.theFamily|familyPC)\.(head|mate)(?:\.0)?\.lovesSpouse$/;
+  const RE_TOKEN_ITEM = /^familyPC\.tempTokens\.(\d+)$/;
+  const RE_TOKEN_CONTAINER = /^familyPC\.tempTokens$/;
+  // The "X / 100" progress bar in-game. Edits apply the delta to
+  // family.theFamily.score and .scoreTotal so all three stay coherent.
+  const RE_GOAL_POINTS = /^family\.theFamily\.goal\.points$/;
+
+  const $tree = document.getElementById('tree');
+  const $source = document.getElementById('source');
+  const $dirty = document.getElementById('dirty');
+  const $search = document.getElementById('search');
+  const $commit = document.getElementById('commit');
+  const $discard = document.getElementById('discard');
+  const $toast = document.getElementById('toast');
+  const $statusExtra = document.getElementById('status-extra');
+
+  let currentPayload = null;
+  // Persisted across renders so edits don't lose your context.
+  let expandedPaths = new Set();
+  let scrollY = 0;
+
+  // ---- toast -----------------------------------------------------------
+  let toastTimer = null;
+  function toast(msg, kind = 'info') {
+    $toast.textContent = msg;
+    $toast.className = 'show ' + kind;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => $toast.className = '', 1400);
+  }
+
+  // ---- helpers ---------------------------------------------------------
+  function isContainer(node) {
+    return ['dict', 'dict_kv', 'list', 'tuple', 'set', 'obj'].includes(node.t);
+  }
+  function childCount(node) {
+    if (!isContainer(node)) return 0;
+    if (node.t === 'dict' || node.t === 'obj') return Object.keys(node.v).length;
+    return node.v.length;
+  }
+  function previewScalar(node) {
+    switch (node.t) {
+      case 'int':
+      case 'float': return String(node.v);
+      case 'str':
+        return JSON.stringify(node.v.length > VALUE_PREVIEW ? node.v.slice(0, VALUE_PREVIEW) + '…' : node.v);
+      case 'bool': return node.v ? 'True' : 'False';
+      case 'null': return 'None';
+      case 'bytes': return `<${node.len} bytes>`;
+      case 'repr': return node.v;
+      default: return '';
+    }
+  }
+
+  // ---- API helpers -----------------------------------------------------
+  async function api(method, path, body) {
+    const res = await fetch(path, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+  async function postEdit(op, args) {
+    rememberState();
+    try {
+      const data = await api('POST', '/api/edit', { op, args });
+      applyPayload(data);
+      toast('updated', 'ok');
+      return data.result;
+    } catch (e) {
+      toast('edit failed: ' + e.message, 'error');
+      throw e;
+    }
+  }
+
+  // ---- state preservation ---------------------------------------------
+  function rememberState() {
+    expandedPaths = new Set();
+    $tree.querySelectorAll('.row').forEach(r => {
+      const ch = r.nextElementSibling;
+      if (ch && ch.classList.contains('children') && !ch.classList.contains('collapsed')) {
+        expandedPaths.add(r.dataset.path);
+      }
+    });
+    scrollY = window.scrollY;
+  }
+  function restoreState() {
+    $tree.querySelectorAll('.row').forEach(r => {
+      if (expandedPaths.has(r.dataset.path)) {
+        const ch = r.nextElementSibling;
+        if (ch && ch.classList.contains('children')) {
+          ch.classList.remove('collapsed');
+          const tgl = r.querySelector('.toggle');
+          if (tgl && !tgl.classList.contains('leaf')) tgl.textContent = '▼';
+        }
+      }
+    });
+    window.scrollTo(0, scrollY);
+    if ($search.value) applyFilter($search.value.trim().toLowerCase());
+  }
+
+  // ---- node finder (for sibling lookups during edits) -----------------
+  function findNodeAtPath(path) {
+    // path is record-name dot-separated. First segment = record name.
+    if (!currentPayload) return null;
+    const [head, ...rest] = path.split('.');
+    const rec = currentPayload.records.find(r => r.name === head);
+    if (!rec) return null;
+    let node = rec.data;
+    for (const seg of rest) {
+      if (!node) return null;
+      if (node.t === 'dict' || node.t === 'obj') {
+        node = node.v[seg];
+      } else if (node.t === 'list' || node.t === 'tuple' || node.t === 'set') {
+        node = node.v[Number(seg)];
+      } else if (node.t === 'dict_kv') {
+        return null;
+      } else {
+        return null;
+      }
+    }
+    return node;
+  }
+
+  // ---- row rendering --------------------------------------------------
+  function rowEl(label, node, path, depth, isRecord = false) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.dataset.path = path;
+    row.dataset.depth = depth;
+
+    const indent = document.createElement('span');
+    indent.className = 'indent';
+    indent.style.width = (depth * INDENT_PX) + 'px';
+    row.appendChild(indent);
+
+    const toggle = document.createElement('span');
+    toggle.className = 'toggle';
+    const container = isContainer(node);
+    toggle.textContent = container ? '▶' : '·';
+    if (!container) toggle.classList.add('leaf');
+    row.appendChild(toggle);
+
+    const key = document.createElement('span');
+    key.className = 'key' + (isRecord ? ' record' : '');
+    key.textContent = label;
+    row.appendChild(key);
+
+    const badge = document.createElement('span');
+    badge.className = 'badge ' + node.t;
+    badge.textContent = node.t === 'obj' ? node.cls : node.t;
+    row.appendChild(badge);
+
+    if (container) {
+      const count = document.createElement('span');
+      count.className = 'count';
+      count.textContent = '(' + childCount(node) + ')';
+      row.appendChild(count);
+    }
+
+    // Decide if this leaf/container offers an inline edit.
+    const editKind = classifyEditable(path, node);
+    if (editKind) row.classList.add('editable');
+
+    // Value / edit affordance (or row append).
+    decorateRow(row, node, path, editKind);
+
+    // Row click = copy path / expand. Edit controls stop propagation.
+    row.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (container) toggleRow(row);
+      copyPath(path);
+    });
+
+    return row;
+  }
+
+  function decorateRow(row, node, path, editKind) {
+    const container = isContainer(node);
+
+    if (!container) {
+      // Scalar leaf. Render an editable value for the editKind we know.
+      if (editKind === 'skill-val') {
+        row.appendChild(makeIntEditor(node, async (v) => {
+          // Look up symbol from the sibling at path.slice(0,-1)+'.0'
+          const symbolPath = path.replace(/\.\d+$/, '.0');
+          const symNode = findNodeAtPath(symbolPath);
+          if (!symNode || symNode.t !== 'str') {
+            throw new Error('cannot resolve symbol from ' + symbolPath);
+          }
+          const who = path.match(RE_SKILL_VAL)[1];
+          await postEdit('skill_set', { who, symbol: symNode.v, value: v });
+        }));
+        return;
+      }
+      if (editKind === 'goal-points') {
+        row.appendChild(makeIntEditor(node, async (v) => {
+          // Server applies delta to score + scoreTotal too.
+          const r = await postEdit('goal_points_set', { value: v });
+          if (r && typeof r === 'object' && 'delta' in r) {
+            toast(`goal.points ${r.goal_points.old} → ${r.goal_points.new}  ` +
+                  `(score Δ${r.delta >= 0 ? '+' : ''}${r.delta}, ` +
+                  `scoreTotal ${r.scoreTotal.old} → ${r.scoreTotal.new})`, 'ok');
+          }
+        }));
+        return;
+      }
+      if (editKind === 'loves') {
+        const who = path.match(RE_LOVES)[1];
+        row.appendChild(makeBoolToggle(node, async (v) => {
+          await postEdit('loves_set', { who, value: v });
+        }));
+        return;
+      }
+      if (editKind === 'token-item') {
+        const val = document.createElement('span');
+        val.className = 'value str';
+        val.textContent = previewScalar(node);
+        row.appendChild(val);
+        const rm = document.createElement('button');
+        rm.className = 'action danger';
+        rm.textContent = '×';
+        rm.title = 'remove one occurrence';
+        rm.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          await postEdit('token_remove', { symbol: node.v, count: 1 });
+        });
+        row.appendChild(rm);
+        return;
+      }
+      // Default: plain read-only value.
+      const val = document.createElement('span');
+      val.className = 'value ' + node.t;
+      val.textContent = previewScalar(node);
+      row.appendChild(val);
+      return;
+    }
+
+    // Container: optional add button (tokens) at the tail.
+    if (editKind === 'token-container') {
+      const add = document.createElement('button');
+      add.className = 'action';
+      add.textContent = '+';
+      add.title = 'add a token symbol';
+      add.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const symbol = prompt('add tempTokens symbol (e.g. CopperT1)');
+        if (!symbol) return;
+        const countRaw = prompt('how many?', '1') || '1';
+        const count = parseInt(countRaw, 10);
+        if (!Number.isFinite(count) || count <= 0) {
+          toast('invalid count', 'error');
+          return;
+        }
+        await postEdit('token_add', { symbol: symbol.trim(), count });
+      });
+      row.appendChild(add);
+    }
+  }
+
+  function classifyEditable(path, node) {
+    if (RE_SKILL_VAL.test(path) && (node.t === 'int' || node.t === 'float')) return 'skill-val';
+    if (RE_LOVES.test(path) && node.t === 'bool') return 'loves';
+    if (RE_TOKEN_ITEM.test(path) && node.t === 'str') return 'token-item';
+    if (RE_TOKEN_CONTAINER.test(path) && isContainer(node)) return 'token-container';
+    if (RE_GOAL_POINTS.test(path) && (node.t === 'int' || node.t === 'float')) return 'goal-points';
+    return null;
+  }
+
+  function makeIntEditor(node, commit) {
+    const span = document.createElement('span');
+    span.className = 'editable-value';
+    span.textContent = String(node.v);
+    span.title = 'click to edit';
+    span.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      enterIntEdit(span, Number(node.v), commit);
+    });
+    return span;
+  }
+
+  function enterIntEdit(span, current, commit) {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'inline-edit';
+    input.value = current;
+    input.addEventListener('click', (e) => e.stopPropagation());
+    input.addEventListener('keydown', async (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        const n = parseInt(input.value, 10);
+        if (!Number.isFinite(n)) { toast('not an integer', 'error'); return; }
+        try { await commit(n); } catch {}
+      } else if (e.key === 'Escape') {
+        span.parentNode.replaceChild(span, input);
+      }
+    });
+    input.addEventListener('blur', () => {
+      // Cancel on blur if value unchanged.
+      if (input.parentNode) input.parentNode.replaceChild(span, input);
+    });
+    span.parentNode.replaceChild(input, span);
+    input.focus();
+    input.select();
+  }
+
+  function makeBoolToggle(node, commit) {
+    const span = document.createElement('span');
+    span.className = 'editable-value bool';
+    span.textContent = node.v ? 'True' : 'False';
+    span.title = 'click to toggle';
+    span.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      try { await commit(!node.v); } catch {}
+    });
+    return span;
+  }
+
+  function toggleRow(row) {
+    const next = row.nextElementSibling;
+    if (!next || !next.classList.contains('children')) return;
+    const collapsed = next.classList.toggle('collapsed');
+    const toggle = row.querySelector('.toggle');
+    if (toggle) toggle.textContent = collapsed ? '▶' : '▼';
+  }
+
+  function copyPath(path) {
+    if (!path) return;
+    if (!navigator.clipboard) { toast('clipboard unavailable'); return; }
+    navigator.clipboard.writeText(path).then(
+      () => toast('copied: ' + path),
+      () => toast('clipboard blocked', 'error'),
+    );
+  }
+
+  // ---- tree build -----------------------------------------------------
+  function buildSubtree(node, basePath, depth) {
+    if (!isContainer(node)) return null;
+    const children = document.createElement('div');
+    children.className = 'children collapsed';
+
+    const entries = (node.t === 'dict' || node.t === 'obj')
+      ? Object.entries(node.v)
+      : (node.t === 'dict_kv')
+        ? node.v.map(([k, v]) => [previewScalar(k) || JSON.stringify(k.v), v])
+        : node.v.map((v, i) => [String(i), v]);
+
+    for (const [key, child] of entries) {
+      const childPath = appendPath(basePath, key, node.t);
+      const childRow = rowEl(key, child, childPath, depth + 1);
+      children.appendChild(childRow);
+      const sub = buildSubtree(child, childPath, depth + 1);
+      if (sub) children.appendChild(sub);
+    }
+    return children;
+  }
+  function appendPath(base, key, parentType) {
+    if (!base) return key;
+    if (parentType === 'set' || parentType === 'dict_kv') return base;
+    return base + '.' + key;
+  }
+
+  function applyPayload(payload) {
+    currentPayload = payload;
+    $source.textContent = payload.source;
+    document.title = '7GS — ' + payload.source.split('/').pop();
+    const dirty = !!payload.dirty;
+    $dirty.classList.toggle('show', dirty);
+    $commit.disabled = !dirty;
+    $discard.disabled = !dirty;
+
+    const frag = document.createDocumentFragment();
+    for (const rec of payload.records) {
+      const label = `${rec.id} ${rec.name}`;
+      const row = rowEl(label, rec.data, rec.name, 0, true);
+      frag.appendChild(row);
+      const sub = buildSubtree(rec.data, rec.name, 0);
+      if (sub) {
+        frag.appendChild(sub);
+        if (!expandedPaths.size) {
+          // First render: expand top-level records.
+          sub.classList.remove('collapsed');
+          row.querySelector('.toggle').textContent = '▼';
+        }
+      }
+    }
+    $tree.replaceChildren(frag);
+    if (expandedPaths.size) restoreState();
+  }
+
+  // ---- filter ---------------------------------------------------------
+  let filterTimer = null;
+  $search.addEventListener('input', () => {
+    clearTimeout(filterTimer);
+    filterTimer = setTimeout(() => applyFilter($search.value.trim().toLowerCase()), 150);
+  });
+  function applyFilter(q) {
+    const rows = $tree.querySelectorAll('.row');
+    rows.forEach(r => r.classList.remove('hit'));
+    if (!q) {
+      $tree.querySelectorAll('.row, .children').forEach(el => el.classList.remove('hidden'));
+      return;
+    }
+    const hits = new Set();
+    rows.forEach(r => {
+      const key = r.querySelector('.key').textContent.toLowerCase();
+      const value = (r.querySelector('.value')?.textContent
+        || r.querySelector('.editable-value')?.textContent
+        || '').toLowerCase();
+      if (key.includes(q) || value.includes(q)) { r.classList.add('hit'); hits.add(r); }
+    });
+    const visible = new Set();
+    const allRows = Array.from(rows).sort((a, b) => Number(b.dataset.depth) - Number(a.dataset.depth));
+    for (const r of allRows) {
+      if (hits.has(r) || hasVisibleDescendant(r, visible)) visible.add(r);
+    }
+    rows.forEach(r => {
+      const show = visible.has(r);
+      r.classList.toggle('hidden', !show);
+      const ch = r.nextElementSibling;
+      if (ch && ch.classList.contains('children')) {
+        ch.classList.toggle('hidden', !show);
+        if (show && hasVisibleDescendant(r, visible)) {
+          ch.classList.remove('collapsed');
+          const toggle = r.querySelector('.toggle');
+          if (toggle && !toggle.classList.contains('leaf')) toggle.textContent = '▼';
+        }
+      }
+    });
+  }
+  function hasVisibleDescendant(row, visibleSet) {
+    const ch = row.nextElementSibling;
+    if (!ch || !ch.classList.contains('children')) return false;
+    return Array.from(ch.querySelectorAll('.row')).some(r => visibleSet.has(r));
+  }
+
+  // ---- expand/collapse all -------------------------------------------
+  document.getElementById('expand-all').addEventListener('click', () => {
+    $tree.querySelectorAll('.children').forEach(c => c.classList.remove('collapsed'));
+    $tree.querySelectorAll('.toggle:not(.leaf)').forEach(t => t.textContent = '▼');
+  });
+  document.getElementById('collapse-all').addEventListener('click', () => {
+    $tree.querySelectorAll('.children').forEach(c => c.classList.add('collapsed'));
+    $tree.querySelectorAll('.toggle:not(.leaf)').forEach(t => t.textContent = '▶');
+  });
+
+  // ---- save / discard -------------------------------------------------
+  $commit.addEventListener('click', async () => {
+    rememberState();
+    try {
+      const data = await api('POST', '/api/commit');
+      applyPayload(data);
+      toast(data.backup ? `saved (backup: ${data.backup})` : 'saved', 'ok');
+    } catch (e) { toast('save failed: ' + e.message, 'error'); }
+  });
+  $discard.addEventListener('click', async () => {
+    if (!confirm('Discard unsaved edits and reload from disk?')) return;
+    rememberState();
+    try {
+      const data = await api('POST', '/api/discard');
+      applyPayload(data);
+      toast('reloaded from disk', 'ok');
+    } catch (e) { toast('discard failed: ' + e.message, 'error'); }
+  });
+
+  // ---- keyboard --------------------------------------------------------
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === '/' && document.activeElement !== $search) {
+      ev.preventDefault(); $search.focus(); $search.select();
+    } else if (ev.key === 'Escape' && document.activeElement === $search) {
+      $search.value = ''; applyFilter(''); $search.blur();
+    } else if ((ev.metaKey || ev.ctrlKey) && ev.key === 's') {
+      ev.preventDefault();
+      if (!$commit.disabled) $commit.click();
+    }
+  });
+
+  // ---- initial load ---------------------------------------------------
+  api('GET', '/api/save').then(applyPayload).catch(err => {
+    $source.textContent = 'failed to load: ' + err.message;
+    toast('initial load failed: ' + err.message, 'error');
+  });
+})();
+</script>
+
+</body>
+</html>
