@@ -167,6 +167,38 @@ def boost_skills(sf: SaveFile, who: str = "head", *, by: int | None = None,
     return changed
 
 
+# ---- children (single-record list under familyPC) ----------------------
+#
+# Unlike head/mate, children are saved only in record 13 (familyPC.children).
+# `family.theFamily.children` is rebuilt at restore time from this list
+# (familyPC.py:370), so editing the familyPC copy is sufficient — no sync.
+
+def _child_dict(sf: SaveFile, index: int) -> dict:
+    children = sf["familyPC"]["children"]
+    if not 0 <= index < len(children):
+        raise ValueError(f"child index {index} out of range (have {len(children)})")
+    c = children[index]
+    if not isinstance(c, dict):
+        raise TypeError(f"children[{index}] is {type(c).__name__}, expected dict")
+    return c
+
+
+def list_children_skills(sf: SaveFile, index: int) -> list[tuple[str, int]]:
+    return _skills_as_pairs(_child_dict(sf, index)["skills"])
+
+
+def set_child_skill(sf: SaveFile, index: int, symbol: str, value: int) -> int | None:
+    """Set one skill on familyPC.children[index]. Adds a new entry if missing.
+
+    Returns the previous value, or None if newly added.
+    """
+    return _replace_in_skills(_child_dict(sf, index), symbol, value, allow_add=True)
+
+
+def remove_child_skill(sf: SaveFile, index: int, symbol: str) -> bool:
+    return _remove_from_skills(_child_dict(sf, index), symbol)
+
+
 def set_loves_spouse(sf: SaveFile, who: str, value: bool) -> bool:
     """Set lovesSpouse on head/mate. Returns the previous value."""
     persons = _person_dicts(sf, who)

@@ -14,7 +14,7 @@ A save-game editor for [**7 Grand Steps: What Ancients Begat**](https://store.st
   - `lovesSpouse` toggle
   - `familyPC.tempTokens` list add/remove
   - Generic dotted-path `get` / `set` for fields not yet covered by a named command
-- **Local web viewer** with inline edit. Tree view of the entire save, type-coloured badges, fuzzy filter, click-to-copy dotted paths, click-to-edit on the supported fields (`goal.points`, per-skill values, `lovesSpouse`, `tempTokens` add/remove), dirty indicator, save/discard buttons. Editing `goal.points` automatically applies the same delta to `score` and `scoreTotal` to keep the three counters consistent.
+- **Local web viewer** with inline edit. Tree view of the entire save, type-coloured badges, fuzzy filter, click-to-copy dotted paths, click-to-edit on the supported fields (`goal.points`, head/mate per-skill values, `familyPC.children[].skills` per-child per-skill values, `lovesSpouse`, `tempTokens` add/remove), dirty indicator, save/discard buttons. Editing `goal.points` automatically applies the same delta to `score` and `scoreTotal` to keep the three counters consistent.
 - **SSH-native paths.** Anywhere a local path is accepted (`some/save.fam`), the same command takes `host:/path` or `user@host:/path` and routes I/O through your system `scp`/`ssh` — no extra dependencies. Useful on Steam Deck, where the game lives under a Proton prefix and you don't want to copy files around manually.
 - **Round-trip safe.** The writer emits protocol-1 cPickle output with `SHORT_BINSTRING`, matching what the game itself produces (Python 2.6 `cPickle.dump(obj, f, True)`). Strings come back as `str` in Python 2, not `unicode`.
 - **Backup on every write.** A `.bak` lands next to the original before any change is committed (use `--no-backup` to skip).
@@ -105,7 +105,8 @@ In the viewer:
 
 - Click any row to copy its dotted path
 - `/` focuses the filter; `Esc` clears it
-- For supported fields, click the value to edit (`goal.points`, skills, `lovesSpouse`), or use the `×` / `+` buttons on `tempTokens` items / container
+- For supported fields, click the value to edit (`goal.points`, head/mate skills, `familyPC.children[].skills`, `lovesSpouse`), or use the `×` / `+` buttons on `tempTokens` items / container
+- Children's skills are stored only in `familyPC.children[]` (the family record doesn't carry them — `family.theFamily.children` is rebuilt from this list on load), so child-skill edits are single-record and need no sync. The expected disk shape is `list[(symbol_str, int_val)]`, same as head/mate
 - Editing `family.theFamily.goal.points` (the "X / 100" bar in-game) also applies the same delta to `family.theFamily.score` and `scoreTotal`, mirroring what `family.AddScore` does in-game so all three stay coherent. Negative deltas pass through (your running totals can go negative if you roll the value down).
 - The `unsaved` badge lights up after any edit; **save** writes to disk (with `.bak`), **discard** reloads from disk
 - Cmd/Ctrl-S also saves
@@ -159,6 +160,23 @@ A `.fam` file is a concatenation of **12 cPickle protocol-1 records**, written i
 | 15 | `graveyard` | Ancestors                                                         |
 
 Note the head/heir and mate are saved **twice** — once in record 2 (`family.theFamily.head/mate` as a person dict) and again in record 13 (`familyPC.head/mate` as a 5-tuple wrapping the same person dict). Both copies are produced from the same `Person.Save()` call at write time, so they must match on disk. All the editor's head/mate operations mirror to both.
+
+Children, by contrast, are saved only once — in `familyPC.children` (record 13). `family.theFamily.children` is rebuilt from that list at load time (see `familyPC.Resume` in the decompiled sources), so single-record edits are sufficient.
+
+### A note on `familyPC.children[].soap.upbringing`
+
+Each child carries a `soap` sub-object (from `soap.py`) whose `upbringing` attribute is a **string that grows by one character per turn the child experiences**:
+
+- `L` — Learn (parent invested in their schooling that turn)
+- `P` — Play (free play)
+- `W` — Work (had them help / work)
+
+The string is appended to by `Soap.Play()` / `Soap.Learn()` / `Soap.Work()` and is used for two things:
+
+1. **Social compatibility between siblings.** `soap.CalcDiscrepency` trims both children's upbringings to their *last 4 characters*, counts P/L/W in each, sums absolute differences, multiplies by 10. A pair with very different recent upbringings is more likely to fight; a pair with similar ones is more likely to bond.
+2. **Age proxy.** `soap.GetOldestFromIDs` treats the longer upbringing string as the older child. The game uses this to pick which sibling to feature in some narrative beats.
+
+The editor doesn't expose `upbringing` for editing because (a) the field has no value bounds the game enforces — anything not in `PLW` would silently change the rivalry-vs-bonding math, and (b) since it doubles as an age proxy, shortening it would make a child appear younger to other systems. It is interesting to read, though, and shows up in the viewer like any other string.
 
 ## Reading the game's source
 

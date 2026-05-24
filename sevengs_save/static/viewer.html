@@ -193,6 +193,8 @@
   const RE_SKILL_VAL = /^(?:family\.theFamily|familyPC)\.(head|mate)(?:\.0)?\.skills\.(\d+)\.1$/;
   // The skill row itself (the tuple) — used so we can pull the symbol.
   const RE_SKILL_ROW = /^(?:family\.theFamily|familyPC)\.(head|mate)(?:\.0)?\.skills\.\d+$/;
+  // Children live only in familyPC (record 13); single-record edit, no sync.
+  const RE_CHILD_SKILL_VAL = /^familyPC\.children\.(\d+)\.skills\.(\d+)\.1$/;
   const RE_LOVES = /^(?:family\.theFamily|familyPC)\.(head|mate)(?:\.0)?\.lovesSpouse$/;
   const RE_TOKEN_ITEM = /^familyPC\.tempTokens\.(\d+)$/;
   const RE_TOKEN_CONTAINER = /^familyPC\.tempTokens$/;
@@ -390,6 +392,18 @@
         }));
         return;
       }
+      if (editKind === 'child-skill-val') {
+        row.appendChild(makeIntEditor(node, async (v) => {
+          const symbolPath = path.replace(/\.\d+$/, '.0');
+          const symNode = findNodeAtPath(symbolPath);
+          if (!symNode || symNode.t !== 'str') {
+            throw new Error('cannot resolve symbol from ' + symbolPath);
+          }
+          const index = parseInt(path.match(RE_CHILD_SKILL_VAL)[1], 10);
+          await postEdit('child_skill_set', { index, symbol: symNode.v, value: v });
+        }));
+        return;
+      }
       if (editKind === 'goal-points') {
         row.appendChild(makeIntEditor(node, async (v) => {
           // Server applies delta to score + scoreTotal too.
@@ -457,6 +471,7 @@
 
   function classifyEditable(path, node) {
     if (RE_SKILL_VAL.test(path) && (node.t === 'int' || node.t === 'float')) return 'skill-val';
+    if (RE_CHILD_SKILL_VAL.test(path) && (node.t === 'int' || node.t === 'float')) return 'child-skill-val';
     if (RE_LOVES.test(path) && node.t === 'bool') return 'loves';
     if (RE_TOKEN_ITEM.test(path) && node.t === 'str') return 'token-item';
     if (RE_TOKEN_CONTAINER.test(path) && isContainer(node)) return 'token-container';

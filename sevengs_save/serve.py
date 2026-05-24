@@ -74,6 +74,10 @@ def _dispatch(sf, op: str, args: dict) -> Any:
         return cheats.set_skill(sf, args["who"], args["symbol"], int(args["value"]))
     if op == "skill_remove":
         return cheats.remove_skill(sf, args["who"], args["symbol"])
+    if op == "child_skill_set":
+        return cheats.set_child_skill(sf, int(args["index"]), args["symbol"], int(args["value"]))
+    if op == "child_skill_remove":
+        return cheats.remove_child_skill(sf, int(args["index"]), args["symbol"])
     if op == "loves_set":
         return cheats.set_loves_spouse(sf, args["who"], bool(args["value"]))
     if op == "token_add":
