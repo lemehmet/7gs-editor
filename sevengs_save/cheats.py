@@ -286,6 +286,212 @@ def _remove_from_skills(person: dict, symbol: str) -> bool:
     return False
 
 
+# ---- situation-tag inputs (family.traits / traitPwrs, ages.*Traits) ----
+#
+# When a heroic challenge fires (goals.*.Reached → tales.StartHeroicChallenge),
+# the game builds a "situation" set from runtime + saved state via
+# tales.FigurePersonWords. The fields below feed that set, and they're what
+# every tale's REQS/NEXT filter against. Editing them lets you steer which
+# tales fit before the next in-game tick. Mapping (FigurePersonWords):
+#   family.traits        → tags as-is
+#   family.traitPwrs     → each entry contributes its uppercase tag
+#   family.powers        → tags derived from each power (already covered by
+#                          add_power / remove_power)
+#   ages.chptTraits/ageTraits/gameTraits  → tags as-is
+
+def list_traits(sf: SaveFile) -> list[str]:
+    return sorted(sf["family"]["theFamily"]["traits"])
+
+
+def add_trait(sf: SaveFile, trait: str) -> bool:
+    """Add a tag to family.theFamily.traits. Returns True if newly added."""
+    return _bag_add(sf["family"]["theFamily"]["traits"], trait)
+
+
+def remove_trait(sf: SaveFile, trait: str) -> bool:
+    return _bag_remove(sf["family"]["theFamily"]["traits"], trait)
+
+
+def list_trait_pwrs(sf: SaveFile) -> list[str]:
+    return list(sf["family"]["theFamily"]["traitPwrs"])
+
+
+def add_trait_pwr(sf: SaveFile, pwr: str) -> bool:
+    """Append to family.theFamily.traitPwrs (skipped if already present).
+
+    Each entry contributes its uppercase form to the heroic-tale situation
+    set, so e.g. 'commander' → 'COMMANDER' becomes available as a REQ.
+    """
+    tp = sf["family"]["theFamily"]["traitPwrs"]
+    if pwr in tp:
+        return False
+    tp.append(pwr)
+    return True
+
+
+def remove_trait_pwr(sf: SaveFile, pwr: str) -> bool:
+    tp = sf["family"]["theFamily"]["traitPwrs"]
+    if pwr not in tp:
+        return False
+    tp.remove(pwr)
+    return True
+
+
+_AGE_SCOPES = ("chpt", "age", "game")
+
+
+def _age_scope_field(scope: str) -> str:
+    if scope == "chpt":
+        return "chptTraits"
+    if scope == "age":
+        return "ageTraits"
+    if scope == "game":
+        return "gameTraits"
+    raise ValueError(f"scope must be one of {_AGE_SCOPES}, not {scope!r}")
+
+
+def list_age_traits(sf: SaveFile, scope: str) -> list[str]:
+    return sorted(sf["ages"][_age_scope_field(scope)])
+
+
+def add_age_trait(sf: SaveFile, trait: str, scope: str) -> bool:
+    return _bag_add(sf["ages"][_age_scope_field(scope)], trait)
+
+
+def remove_age_trait(sf: SaveFile, trait: str, scope: str) -> bool:
+    return _bag_remove(sf["ages"][_age_scope_field(scope)], trait)
+
+
+# ---- tales.heroicsTold (4th element of the tales 5-tuple) --------------
+#
+# Marking a heroic tale ID here makes StartHeroicChallenge's *no-arg* scan
+# skip it. (When Reached() calls StartHeroicChallenge with a specific tale
+# ID — the chapter-entry "challengeRule3" path — heroicsTold is NOT
+# consulted, so this isn't a complete bypass for the CotA challenge; see
+# prep_ruling_class for that workaround.)
+
+def list_heroics_told(sf: SaveFile) -> list[str]:
+    return list(sf["tales"][3])
+
+
+def mark_heroic_told(sf: SaveFile, tale_id: str) -> bool:
+    ht = sf["tales"][3]
+    if tale_id in ht:
+        return False
+    ht.append(tale_id)
+    return True
+
+
+def unmark_heroic_told(sf: SaveFile, tale_id: str) -> bool:
+    ht = sf["tales"][3]
+    if tale_id not in ht:
+        return False
+    ht.remove(tale_id)
+    return True
+
+
+def _bag_add(bag, item) -> bool:
+    """Add item to a set-or-list bag. Returns True if newly added."""
+    if isinstance(bag, set):
+        if item in bag:
+            return False
+        bag.add(item)
+        return True
+    if item in bag:
+        return False
+    bag.append(item)
+    return True
+
+
+def _bag_remove(bag, item) -> bool:
+    if item not in bag:
+        return False
+    if isinstance(bag, set):
+        bag.discard(item)
+    else:
+        bag.remove(item)
+    return True
+
+
+# ---- presets -----------------------------------------------------------
+
+_AGE_CHALLENGE_DIGIT = {"Copper": "3", "Bronze": "4", "Iron": "5"}
+
+
+def prep_ruling_class(sf: SaveFile, *,
+                      age: str | None = None,
+                      trait_pwr: str = "commander",
+                      bump_skill_to: int = 80,
+                      add_tokens: int = 6,
+                      mark_challenge_told: bool = True,
+                      grant_legend: bool = True) -> dict:
+    """Pre-load Ruling-class state so post-CotA play is more reliable.
+
+    Designed for use after pushing a save into the Ruling chapter so that the
+    next in-game heroic challenge (and the rest of the chapter's tales) has
+    enough tags in its situation set to fit. Each step is opt-out via the
+    keyword args.
+
+      - `trait_pwr`: appended to family.traitPwrs; its uppercase form lands
+        in the situation set, so e.g. 'commander' → 'COMMANDER' (unlocks the
+        'commander' tale branch's filtered NEXT chains).
+      - `mark_challenge_told`: marks 'challengeRule<digit>' in tales.heroicsTold
+        for the inferred or supplied `age`. The chapter-entry challenge that
+        Reached() fires uses an explicit tale ID and bypasses heroicsTold,
+        but downstream NewAge-style scans do honour it, so this still helps
+        avoid re-triggering the same CotA tale on a second pass.
+      - `bump_skill_to`: head's `<age>R*` skills bumped up to at least this
+        value (won't lower existing higher values).
+      - `add_tokens`: drops N copies of `<age>R0` into familyPC.tempTokens.
+      - `grant_legend`: ensures ('U', 'rulingCaste') is in family.legends if
+        it isn't already.
+
+    If `age` is None, infers from `ages.theAge` in the save.
+    """
+    if age is None:
+        age = sf["ages"].get("theAge") if isinstance(sf["ages"], dict) else None
+    if not age:
+        raise ValueError("could not infer age from save; pass age= explicitly")
+    if age not in _AGE_CHALLENGE_DIGIT:
+        raise ValueError(f"unknown age {age!r}; expected one of {tuple(_AGE_CHALLENGE_DIGIT)}")
+
+    result: dict = {"age": age, "changes": []}
+    log = result["changes"].append
+
+    if add_trait_pwr(sf, trait_pwr):
+        log(f"family.traitPwrs += {trait_pwr!r}")
+
+    if mark_challenge_told:
+        tid = "challengeRule" + _AGE_CHALLENGE_DIGIT[age]
+        if mark_heroic_told(sf, tid):
+            log(f"tales.heroicsTold += {tid!r}")
+
+    if grant_legend:
+        fam = sf["family"]["theFamily"]
+        legends = fam.setdefault("legends", [])
+        if not any(isinstance(leg, tuple) and leg[-1] == "rulingCaste" for leg in legends):
+            legends.append(("U", "rulingCaste"))
+            log("family.legends += ('U', 'rulingCaste')")
+
+    if bump_skill_to > 0:
+        prefix = age + "R"
+        for sym, val in list_skills(sf, "head"):
+            if sym.startswith(prefix) and val < bump_skill_to:
+                set_skill(sf, "head", sym, bump_skill_to)
+                log(f"head.skills[{sym}] {val} -> {bump_skill_to}")
+
+    if add_tokens > 0:
+        sym = age + "R0"
+        tt = sf["familyPC"]["tempTokens"]
+        existing = sum(1 for t in tt if t == sym)
+        need = max(0, add_tokens - existing)
+        if need > 0:
+            new_len = add_temp_token(sf, sym, need)
+            log(f"familyPC.tempTokens += {sym}x{need} (have {existing}, target {add_tokens}, len now {new_len})")
+
+    return result
+
+
 # ---- powers ------------------------------------------------------------
 
 def add_power(sf: SaveFile, tag: str) -> bool:

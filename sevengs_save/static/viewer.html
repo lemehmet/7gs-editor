@@ -244,6 +244,8 @@
       case 'null': return 'None';
       case 'bytes': return `<${node.len} bytes>`;
       case 'repr': return node.v;
+      case 'cycle': return `<cycle: ${node.cls}>`;
+      case 'deep': return `<truncated at depth ${node.depth}: ${node.cls}>`;
       default: return '';
     }
   }

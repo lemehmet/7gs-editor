@@ -175,6 +175,121 @@ def cmd_tokens(args):
         print(f"wrote {args.file}" + (f" (backup: {bak})" if bak else ""))
 
 
+def cmd_traits(args):
+    sf = load(args.file)
+    print(f"current family.traits: {cheats.list_traits(sf)}")
+    changed = False
+    if args.add:
+        for t in args.add:
+            if cheats.add_trait(sf, t):
+                print(f"  added: {t}"); changed = True
+            else:
+                print(f"  already present: {t}")
+    if args.remove:
+        for t in args.remove:
+            if cheats.remove_trait(sf, t):
+                print(f"  removed: {t}"); changed = True
+            else:
+                print(f"  not present: {t}")
+    if not changed:
+        return
+    if not args.dry_run:
+        bak = sf.write(args.file, backup=not args.no_backup)
+        print(f"wrote {args.file}" + (f" (backup: {bak})" if bak else ""))
+
+
+def cmd_tpwrs(args):
+    sf = load(args.file)
+    print(f"current family.traitPwrs: {cheats.list_trait_pwrs(sf)}")
+    changed = False
+    if args.add:
+        for p in args.add:
+            if cheats.add_trait_pwr(sf, p):
+                print(f"  added: {p}"); changed = True
+            else:
+                print(f"  already present: {p}")
+    if args.remove:
+        for p in args.remove:
+            if cheats.remove_trait_pwr(sf, p):
+                print(f"  removed: {p}"); changed = True
+            else:
+                print(f"  not present: {p}")
+    if not changed:
+        return
+    if not args.dry_run:
+        bak = sf.write(args.file, backup=not args.no_backup)
+        print(f"wrote {args.file}" + (f" (backup: {bak})" if bak else ""))
+
+
+def cmd_agetraits(args):
+    sf = load(args.file)
+    print(f"current ages.{args.scope}Traits: {cheats.list_age_traits(sf, args.scope)}")
+    changed = False
+    if args.add:
+        for t in args.add:
+            if cheats.add_age_trait(sf, t, args.scope):
+                print(f"  added: {t}"); changed = True
+            else:
+                print(f"  already present: {t}")
+    if args.remove:
+        for t in args.remove:
+            if cheats.remove_age_trait(sf, t, args.scope):
+                print(f"  removed: {t}"); changed = True
+            else:
+                print(f"  not present: {t}")
+    if not changed:
+        return
+    if not args.dry_run:
+        bak = sf.write(args.file, backup=not args.no_backup)
+        print(f"wrote {args.file}" + (f" (backup: {bak})" if bak else ""))
+
+
+def cmd_heroicstold(args):
+    sf = load(args.file)
+    print(f"current tales.heroicsTold: {cheats.list_heroics_told(sf)}")
+    changed = False
+    if args.add:
+        for tid in args.add:
+            if cheats.mark_heroic_told(sf, tid):
+                print(f"  marked told: {tid}"); changed = True
+            else:
+                print(f"  already told: {tid}")
+    if args.remove:
+        for tid in args.remove:
+            if cheats.unmark_heroic_told(sf, tid):
+                print(f"  unmarked: {tid}"); changed = True
+            else:
+                print(f"  not in list: {tid}")
+    if not changed:
+        return
+    if not args.dry_run:
+        bak = sf.write(args.file, backup=not args.no_backup)
+        print(f"wrote {args.file}" + (f" (backup: {bak})" if bak else ""))
+
+
+def cmd_preset(args):
+    sf = load(args.file)
+    if args.which == "ruling":
+        kwargs = {"trait_pwr": args.trait_pwr,
+                  "bump_skill_to": args.bump_skill_to,
+                  "add_tokens": args.add_tokens,
+                  "mark_challenge_told": not args.no_mark_challenge,
+                  "grant_legend": not args.no_grant_legend}
+        if args.age:
+            kwargs["age"] = args.age
+        result = cheats.prep_ruling_class(sf, **kwargs)
+        print(f"preset ruling (age={result['age']}):")
+        for line in result["changes"]:
+            print(f"  {line}")
+        if not result["changes"]:
+            print("  (no changes — already in the target state)")
+    else:
+        raise SystemExit(f"unknown preset: {args.which!r}")
+    if not args.dry_run:
+        bak = sf.write(args.file, backup=not args.no_backup)
+        print(f"wrote {args.file}" + (f" (backup: {bak})" if bak else ""))
+
+
 def cmd_powers(args):
     sf = load(args.file)
     fam = sf["family"]["theFamily"]
@@ -292,6 +407,53 @@ def build_parser():
     g3.add_argument("--remove", help="power tag to remove")
     _add_write_flags(pw)
     pw.set_defaults(func=cmd_powers)
+
+    tr = sub.add_parser("traits", help="list/add/remove items in family.theFamily.traits")
+    tr.add_argument("file", type=str)
+    tr.add_argument("--add", action="append", metavar="TRAIT", help="trait to add (may be repeated)")
+    tr.add_argument("--remove", action="append", metavar="TRAIT")
+    _add_write_flags(tr)
+    tr.set_defaults(func=cmd_traits)
+
+    tp = sub.add_parser("tpwrs", help="list/add/remove items in family.theFamily.traitPwrs")
+    tp.add_argument("file", type=str)
+    tp.add_argument("--add", action="append", metavar="POWER")
+    tp.add_argument("--remove", action="append", metavar="POWER")
+    _add_write_flags(tp)
+    tp.set_defaults(func=cmd_tpwrs)
+
+    at = sub.add_parser("agetraits", help="list/add/remove items in ages.{chpt,age,game}Traits")
+    at.add_argument("file", type=str)
+    at.add_argument("--scope", choices=["chpt", "age", "game"], default="chpt")
+    at.add_argument("--add", action="append", metavar="TRAIT")
+    at.add_argument("--remove", action="append", metavar="TRAIT")
+    _add_write_flags(at)
+    at.set_defaults(func=cmd_agetraits)
+
+    ht = sub.add_parser("heroicstold", help="list/add/remove tale IDs in tales.heroicsTold")
+    ht.add_argument("file", type=str)
+    ht.add_argument("--add", action="append", metavar="TALE_ID")
+    ht.add_argument("--remove", action="append", metavar="TALE_ID")
+    _add_write_flags(ht)
+    ht.set_defaults(func=cmd_heroicstold)
+
+    pr = sub.add_parser("preset", help="apply a curated multi-field preset")
+    pr.add_argument("file", type=str)
+    pr.add_argument("which", choices=["ruling"], help="preset to apply")
+    pr.add_argument("--age", choices=["Copper", "Bronze", "Iron"],
+                    help="override age (default: infer from save)")
+    pr.add_argument("--trait-pwr", default="commander",
+                    help="trait power to grant (default: commander)")
+    pr.add_argument("--bump-skill-to", type=int, default=80,
+                    help="bump head's <age>R* skills to at least this value (default 80)")
+    pr.add_argument("--add-tokens", type=int, default=6,
+                    help="copies of <age>R0 to drop into tempTokens (default 6)")
+    pr.add_argument("--no-mark-challenge", action="store_true",
+                    help="don't mark the chapter-entry challenge as told")
+    pr.add_argument("--no-grant-legend", action="store_true",
+                    help="don't ensure ('U','rulingCaste') in family.legends")
+    _add_write_flags(pr)
+    pr.set_defaults(func=cmd_preset)
 
     sv = sub.add_parser("serve", help="open a local web viewer for the save")
     sv.add_argument("file", type=str)

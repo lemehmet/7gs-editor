@@ -94,6 +94,43 @@ python3 -m sevengs_save powers path/to/save.fam --add personalHero
 python3 -m sevengs_save powers path/to/save.fam --remove BronzeL2
 ```
 
+### Situation-tag fields (and the ruling-class preset)
+
+When a heroic challenge fires (`Goal.Reached → tales.StartHeroicChallenge`), the game builds a *situation* set out of runtime + saved state (`tales.FigurePersonWords`). Every tale's `REQUIREMENTS` and every per-choice `REQS` filter against that set. If a chapter you've leapfrogged into (via a big `score`/`goal.points` jump) is missing the tags a tale expects, the in-game heroic flow can wedge — typically with an `IndexError` from a `random.choice` on an empty candidates list.
+
+The four fields below are the editable inputs to `FigurePersonWords`:
+
+```bash
+# family.theFamily.traits (set)            — tags as-is
+python3 -m sevengs_save traits      path/to/save.fam --add firstColony --remove tutorial
+
+# family.theFamily.traitPwrs (list)        — each entry's uppercase form lands in situation
+python3 -m sevengs_save tpwrs       path/to/save.fam --add commander --add justice
+
+# ages.{chptTraits,ageTraits,gameTraits}   — tags as-is, scoped by --scope
+python3 -m sevengs_save agetraits   path/to/save.fam --scope chpt --add COLONIES
+
+# tales.heroicsTold (list)                  — IDs to skip in StartHeroicChallenge's scan
+python3 -m sevengs_save heroicstold path/to/save.fam --add challengeRule3
+```
+
+Curated one-shot for the Ruling chapter (CotA):
+
+```bash
+python3 -m sevengs_save preset path/to/save.fam ruling
+# infers age from ages.theAge; default kwargs grant 'commander' (so 'COMMANDER'
+# is in situation), mark the chapter-entry challenge (challengeRule3 for Copper,
+# Rule4 for Bronze, Rule5 for Iron) as already told, ensure ('U','rulingCaste')
+# is in family.legends, bump head's <age>R* skills to ≥ 80, and top up
+# familyPC.tempTokens to 6 copies of <age>R0. Re-running is a no-op.
+
+# Override any step:
+python3 -m sevengs_save preset path/to/save.fam ruling \
+    --age Bronze --trait-pwr justice --add-tokens 0 --no-mark-challenge
+```
+
+> **Caveat.** The preset is a known-useful starting point, not a guaranteed crash-proof advance. The in-game content tree branches on many tags simultaneously, and we can't simulate every path offline. If a tale path still wedges after the preset, use the four primitives above to add whatever situation tag the missing branch needs.
+
 ### Local web viewer + editor
 
 ```bash
