@@ -12,6 +12,7 @@
 import argparse
 import ast
 import sys
+from collections import Counter
 
 from . import cheats
 from .savefile import SAVER_NAMES, SAVER_ORDER, load
@@ -151,10 +152,32 @@ def cmd_loves(args):
         print(f"wrote {args.file}" + (f" (backup: {bak})" if bak else ""))
 
 
+_TOKEN_AGES = ("Copper", "Bronze", "Iron")
+_TOKEN_CLASSES = ("L", "T", "N", "R")
+
+
+def _token_sort_key(sym):
+    """Sort key for token names shaped <Age><Class><ID>, by Class, Age, ID.
+
+    Unparseable names sort last, in plain alphabetical order.
+    """
+    for age_idx, age in enumerate(_TOKEN_AGES):
+        if sym.startswith(age):
+            rest = sym[len(age):]
+            if len(rest) == 2 and rest[0] in _TOKEN_CLASSES and rest[1].isdigit():
+                return (0, _TOKEN_CLASSES.index(rest[0]), age_idx, int(rest[1]))
+    return (1, sym)
+
+
 def cmd_tokens(args):
     sf = load(args.file)
     tt = cheats.list_temp_tokens(sf)
-    print(f"current tempTokens (len={len(tt)}): {tt}")
+    counts = Counter(tt)
+    print(f"current tempTokens (len={len(tt)}, unique={len(counts)}):")
+    if counts:
+        width = max(len(s) for s in counts)
+        for sym, n in sorted(counts.items(), key=lambda kv: _token_sort_key(kv[0])):
+            print(f"  {sym:<{width}}  {n}")
     changed = False
     if args.add:
         for spec in args.add:
@@ -391,7 +414,7 @@ def build_parser():
     tk.add_argument("file", type=str)
     tk.add_argument(
         "--add", action="append", metavar="SYMBOL[xN]",
-        help="append SYMBOL (optionally N copies, e.g. CopperT1x3)",
+        help="append SYMBOL (optionally N copies, e.g. CopperT1x3; may be repeated)",
     )
     tk.add_argument(
         "--remove", action="append", metavar="SYMBOL",
